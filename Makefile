@@ -55,7 +55,14 @@ check-client-server: build/server build/client
 		then true; else false; fi
 	@echo SUCCESS $@
 
-check: check-client-server check-telnot
+build/test-inet_pton-inet_ntop: tests/test-inet_pton-inet_ntop.c
+	$(CC) $(BUILD_CFLAGS) $< -o $@
+
+check-inet_pton-inet_ntop: build/test-inet_pton-inet_ntop
+	build/test-inet_pton-inet_ntop
+	@echo SUCCESS $@
+
+check: check-client-server check-telnot check-inet_pton-inet_ntop
 	@echo SUCCESS $@
 
 submodules-update:
