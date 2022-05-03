@@ -40,12 +40,23 @@ build/server: src/server.c src/ipaddr.c build
 build/client: src/client.c src/ipaddr.c build
 	$(CC) $(BUILD_CFLAGS) src/ipaddr.c src/client.c -o $@
 
-check: build/server build/client
+build/telnot: src/telnot.c src/ipaddr.c build
+	$(CC) $(BUILD_CFLAGS) src/ipaddr.c src/telnot.c -o $@
+
+check-telnot: build/telnot
+	ls -l build/telnot
+	@echo SUCCESS $@
+
+check-client-server: build/server build/client
 	{ build/server $(PORT) | tee build/server.check.log ; } &
 	build/client 127.0.0.1 $(PORT) | tee build/client.check.log
 	killall build/server
 	if [ $$(grep -c 'hello, world' ./build/client.check.log) -eq 1 ]; \
 		then true; else false; fi
+	@echo SUCCESS $@
+
+check: check-client-server check-telnot
+	@echo SUCCESS $@
 
 submodules-update:
 	git submodule update --init --recursive

@@ -14,6 +14,7 @@
 ** Hit ^C to break out.
 */
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -27,137 +28,144 @@
 
 #include <arpa/inet.h>
 
-#define BUFSIZE 1024
+void *get_in_addr(struct sockaddr *sa);
 
-/**
- * Get a sockaddr, IPv4 or IPv6
- */
-void *get_in_addr(struct sockaddr *sa)
+int socket_connect(const char *hostname, const char *port, char *addr_str,
+		   size_t addr_str_size, FILE *errlog)
 {
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
+	assert(addr_str_size >= INET6_ADDRSTRLEN);
 
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
-/**
- * Main
- */
-int main(int argc, char *argv[])
-{
-	int sockfd;  
-	struct addrinfo hints, *servinfo, *p;
-	int rv;
-	char s[INET6_ADDRSTRLEN];
-
-	if (argc != 3) {
-	    fprintf(stderr,"usage: telnot hostname port\n");
-	    exit(1);
-	}
-
-	char *hostname = argv[1];
-	char *port = argv[2];
-
-	// Try to connect
-
-	memset(&hints, 0, sizeof hints);
+	struct addrinfo hints;
+	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
+	int sockfd = -1;
+	int rv = 0;
+	struct addrinfo *servinfo = NULL;
 	if ((rv = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-		return 1;
+		if (errlog) {
+			fprintf(errlog, "getaddrinfo: %s\n", gai_strerror(rv));
+		}
+		sockfd = -1;
 	}
 
+	struct addrinfo *p = NULL;
 	// loop through all the results and connect to the first we can
-	for(p = servinfo; p != NULL; p = p->ai_next) {
+	for (p = servinfo; p != NULL; p = p->ai_next) {
 		if ((sockfd = socket(p->ai_family, p->ai_socktype,
-				p->ai_protocol)) == -1) {
-			//perror("telnot: socket");
+				     p->ai_protocol)) == -1) {
 			continue;
 		}
 
 		if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-			//perror("telnot: connect");
 			close(sockfd);
 			continue;
 		}
 
 		break;
 	}
-
 	if (p == NULL) {
-		fprintf(stderr, "client: failed to connect\n");
-		return 2;
+		sockfd = -1;
+	} else {
+		int afamily = p->ai_family;
+		const void *src = get_in_addr((struct sockaddr *)p->ai_addr);
+		memset(addr_str, 0x00, addr_str_size);
+		inet_ntop(afamily, src, addr_str, addr_str_size);
 	}
+	freeaddrinfo(servinfo);	// All done with this structure
 
-	// Connected!
+	return sockfd;
+}
 
-	inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
-			s, sizeof s);
-
-	printf("Connected to %s port %s\n", s, port);
-	printf("Hit ^C to exit\n");
-
-	freeaddrinfo(servinfo); // All done with this structure
-
-	// Poll stdin and sockfd for incoming data (ready-to-read)
+// Poll fd0, fd1 for incoming data (ready-to-read)
+int read_write_fds_loop(int fd0in, int fd0out, int fd1in, int fd1out)
+{
 	struct pollfd fds[2];
 
-	fds[0].fd = 0;
+	fds[0].fd = fd0in;
 	fds[0].events = POLLIN;
 
-	fds[1].fd = sockfd;
+	fds[1].fd = fd1in;
 	fds[1].events = POLLIN;
 
-	// Main loop
-	for(;;) {
+	// Not reached--use ^C to exit.
+
+	for (;;) {
 		if (poll(fds, 2, -1) == -1) {
 			perror("poll");
-			exit(1);
+			return EXIT_FAILURE;
 		}
 
 		for (int i = 0; i < 2; i++) {
-
 			// Check for ready-to-read
-			if (fds[i].revents & POLLIN) {
+			if (!(fds[i].revents & POLLIN)) {
+				continue;
+			}
+			// Compute where to write data. If we're stdin (0),
+			// we'll write to the sockfd. If we're the sockfd, we'll
+			// write to stdout (1).
+			int outfd = fds[i].fd == fd0in ? fd1out : fd0out;
 
-				int readbytes, writebytes;
-				char buf[BUFSIZE];
+			const size_t buf_size = 1000;
+			char buf[1000];
 
-				// Compute where to write data. If we're stdin (0),
-				// we'll write to the sockfd. If we're the sockfd, we'll
-				// write to stdout (1).
-				int outfd = fds[i].fd == 0? sockfd: 1;
-
-				// We use read() and write() in here since those work on
-				// all fds, not just sockets. send() and recv() would
-				// fail on stdin and stdout since they're not sockets.
-				if ((readbytes = read(fds[i].fd, buf, BUFSIZE)) == -1) {
-					perror("read");
-					exit(2);
+			// We use read() and write() in here since those work on
+			// all fds, not just sockets. send() and recv() would
+			// fail on stdin and stdout since they're not sockets.
+			int readbytes = 0;
+			if ((readbytes = read(fds[i].fd, buf, buf_size)) == -1) {
+				perror("read");
+				return EXIT_FAILURE;
+			}
+			// Write all data out
+			char *p = buf;
+			int remainingbytes = readbytes;
+			int writebytes = 0;
+			while (remainingbytes > 0) {
+				if ((writebytes =
+				     write(outfd, p, remainingbytes)) == -1) {
+					perror("write");
+					return EXIT_FAILURE;
 				}
 
-				char *p = buf;
-				int remainingbytes = readbytes;
-
-				// Write all data out
-				while (remainingbytes > 0) {
-					if ((writebytes = write(outfd, p, remainingbytes)) == -1) {
-						perror("write");
-						exit(2);
-					}
-
-					p += writebytes;
-					remainingbytes -= writebytes;
-				}
+				p += writebytes;
+				remainingbytes -= writebytes;
 			}
 		}
 	}
 
-	// Not reached--use ^C to exit.
-
-	return 0;
+	// not reached;
+	return -1;
 }
 
+/**
+ * Main
+ */
+int main(int argc, char **argv)
+{
+	if (argc != 3) {
+		fprintf(stderr, "usage: telnot hostname port\n");
+		exit(1);
+	}
+
+	const char *hostname = argv[1];
+	const char *port = argv[2];
+	char addr_str[INET6_ADDRSTRLEN];
+	int sockfd =
+	    socket_connect(hostname, port, addr_str, INET6_ADDRSTRLEN, stderr);
+	if (sockfd < 0) {
+		fprintf(stderr, "client: failed to connect\n");
+		return EXIT_FAILURE;
+	}
+	printf("Connected to %s port %s\n", addr_str, port);
+
+	printf("Hit ^C to exit\n");
+
+	int stdinfd = 0;
+	int stdoutfd = 1;
+	int err = read_write_fds_loop(stdinfd, stdoutfd, sockfd, sockfd);
+	close(sockfd);
+
+	return err;
+}
