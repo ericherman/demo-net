@@ -10,50 +10,32 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-int main(int argc, char *argv[])
+#include "ipaddr.h"
+
+int main(int argc, char **argv)
 {
-    struct addrinfo hints, *res, *p;
-    int status;
-    char ipstr[INET6_ADDRSTRLEN];
+	const char *host = argc > 1 ? argv[1] : "localhost";
 
-    if (argc != 2) {
-        fprintf(stderr,"usage: showip hostname\n");
-        return 1;
-    }
+	int err = 0;
+	struct addrinfo *addrinfos = get_addrinfo_list(host, &err);
+	if (!addrinfos) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(err));
+		return 1;
+	}
 
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC; // AF_INET or AF_INET6 to force version
-    hints.ai_socktype = SOCK_STREAM;
+	printf("IP addresses for %s:\n\n", host);
 
-    if ((status = getaddrinfo(argv[1], NULL, &hints, &res)) != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
-        return 2;
-    }
+	for (struct addrinfo *ai = addrinfos; ai != NULL; ai = ai->ai_next) {
+		int is_ipv6 = 0;
+		void *addr = addrinfo_to_inaddr(ai, &is_ipv6);
+		const char *ipver = is_ipv6 ? "IPv6" : "IPv4";
+		// convert the IP to a string and print it:
+		char ipstr[INET6_ADDRSTRLEN];
+		inet_ntop(ai->ai_family, addr, ipstr, INET6_ADDRSTRLEN);
+		printf("  %s: %s\n", ipver, ipstr);
+	}
 
-    printf("IP addresses for %s:\n\n", argv[1]);
+	freeaddrinfo(addrinfos);	// free the linked list
 
-    for(p = res;p != NULL; p = p->ai_next) {
-        void *addr;
-        char *ipver;
-
-        // get the pointer to the address itself,
-        // different fields in IPv4 and IPv6:
-        if (p->ai_family == AF_INET) { // IPv4
-            struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
-            addr = &(ipv4->sin_addr);
-            ipver = "IPv4";
-        } else { // IPv6
-            struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
-            addr = &(ipv6->sin6_addr);
-            ipver = "IPv6";
-        }
-
-        // convert the IP to a string and print it:
-        inet_ntop(p->ai_family, addr, ipstr, sizeof ipstr);
-        printf("  %s: %s\n", ipver, ipstr);
-    }
-
-    freeaddrinfo(res); // free the linked list
-
-    return 0;
+	return 0;
 }

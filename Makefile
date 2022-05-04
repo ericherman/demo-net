@@ -31,17 +31,28 @@ BUILD_CFLAGS=$(CSTD_CFLAGS) $(NOISY_CFLAGS) $(O2_CFLAGS) $(INCLUDE_CFLAGS)
 
 default: check
 
-build:
+
+build/server: src/server.c src/ipaddr.h src/ipaddr.c
 	mkdir -pv build
+	$(CC) $(BUILD_CFLAGS) $^ -o $@
 
-build/server: src/server.c src/ipaddr.c build
-	$(CC) $(BUILD_CFLAGS) src/ipaddr.c src/server.c -o $@
+build/client: src/client.c src/ipaddr.h src/ipaddr.c
+	mkdir -pv build
+	$(CC) $(BUILD_CFLAGS) $^ -o $@
 
-build/client: src/client.c src/ipaddr.c build
-	$(CC) $(BUILD_CFLAGS) src/ipaddr.c src/client.c -o $@
+build/telnot: src/telnot.c src/ipaddr.h src/ipaddr.c
+	mkdir -pv build
+	$(CC) $(BUILD_CFLAGS) $^ -o $@
 
-build/telnot: src/telnot.c src/ipaddr.c build
-	$(CC) $(BUILD_CFLAGS) src/ipaddr.c src/telnot.c -o $@
+build/showip: src/showip.c src/ipaddr.h src/ipaddr.c
+	mkdir -pv build
+	$(CC) $(BUILD_CFLAGS) $^ -o $@
+
+check-showip: build/showip
+	build/showip localhost | tee build/showip.check.log;
+	if [ $$(grep -c '127.0.0.1' ./build/showip.check.log) -gt 0 ]; \
+		then true; else false; fi
+	@echo SUCCESS $@
 
 check-telnot: build/telnot
 	ls -l build/telnot
@@ -56,13 +67,14 @@ check-client-server: build/server build/client
 	@echo SUCCESS $@
 
 build/test-inet_pton-inet_ntop: tests/test-inet_pton-inet_ntop.c
+	mkdir -pv build
 	$(CC) $(BUILD_CFLAGS) $< -o $@
 
 check-inet_pton-inet_ntop: build/test-inet_pton-inet_ntop
 	build/test-inet_pton-inet_ntop
 	@echo SUCCESS $@
 
-check: check-client-server check-telnot check-inet_pton-inet_ntop
+check: check-inet_pton-inet_ntop check-showip check-client-server check-telnot
 	@echo SUCCESS $@
 
 submodules-update:
@@ -79,6 +91,7 @@ tidy:
 		-T uint16_t -T int16_t \
 		-T uint32_t -T int32_t \
 		-T uint64_t -T int64_t \
+		-T addrinfo \
 		`find src tests -name '*.h' -o -name '*.c'`
 
 clean:

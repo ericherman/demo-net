@@ -28,7 +28,7 @@
 
 #include <arpa/inet.h>
 
-void *get_in_addr(struct sockaddr *sa);
+void *sockaddr_to_inaddr(struct sockaddr *sa);
 
 int socket_connect(const char *hostname, const char *port, char *addr_str,
 		   size_t addr_str_size, FILE *errlog)
@@ -69,7 +69,8 @@ int socket_connect(const char *hostname, const char *port, char *addr_str,
 		sockfd = -1;
 	} else {
 		int afamily = p->ai_family;
-		const void *src = get_in_addr((struct sockaddr *)p->ai_addr);
+		const void *src =
+		    sockaddr_to_inaddr((struct sockaddr *)p->ai_addr);
 		memset(addr_str, 0x00, addr_str_size);
 		inet_ntop(afamily, src, addr_str, addr_str_size);
 	}

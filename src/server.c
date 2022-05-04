@@ -14,7 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-void *get_in_addr(struct sockaddr *sa);
+#include "ipaddr.h"
 
 void sigchld_handler(int s)
 {
@@ -59,9 +59,12 @@ int main_accept_loop(int sockfd)
 
 		char addr_str[INET6_ADDRSTRLEN];
 		size_t addr_str_size = INET6_ADDRSTRLEN;
-		inet_ntop(their_addr.ss_family, get_in_addr(their_sa), addr_str,
+		int is_ipv6 = 0;
+		inet_ntop(their_addr.ss_family,
+			  sockaddr_to_inaddr(their_sa, &is_ipv6), addr_str,
 			  addr_str_size);
-		printf("server: got connection from %s\n", addr_str);
+		printf("server: got connection from %s (%s)\n", addr_str,
+		       is_ipv6 ? "IPv6" : "IPv4");
 
 		pid_t child_pid = fork();
 		if (child_pid) {

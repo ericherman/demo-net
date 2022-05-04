@@ -12,8 +12,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-// get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa);
+#include "ipaddr.h"
 
 int main(int argc, char **argv)
 {
@@ -60,9 +59,12 @@ int main(int argc, char **argv)
 
 	char addr_str[INET6_ADDRSTRLEN];
 	memset(addr_str, 0x00, INET6_ADDRSTRLEN);
-	inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
+	int is_ipv6 = 0;
+	inet_ntop(p->ai_family,
+		  sockaddr_to_inaddr((struct sockaddr *)p->ai_addr, &is_ipv6),
 		  addr_str, INET6_ADDRSTRLEN);
-	printf("client: connecting to %s\n", addr_str);
+	printf("client: connecting to %s (%s)\n", addr_str,
+	       is_ipv6 ? "IPv6" : "IPv4");
 
 	freeaddrinfo(servinfo);
 	servinfo = NULL;
